@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Cognest — Save Everything</title>
+<meta name="description" content="Save websites, videos, and articles — all in one place, organized your way."/>
+<meta name="theme-color" content="#ffffff"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;-webkit-text-size-adjust:100%}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F5F7FA;color:#1A1F2E;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+#root{min-height:100vh;display:flex;flex-direction:column}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+input::placeholder,textarea::placeholder{color:#94A3B8}
+button,a{-webkit-tap-highlight-color:transparent}
+img{display:block;max-width:100%}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.fu{animation:fadeUp 0.22s ease both}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useRef}=React;
+
+/* ── TOKENS ── */
+const A='#5B8DEF',AL='rgba(91,141,239,0.09)',AB='rgba(91,141,239,0.22)';
+const C={bg:'#F5F7FA',white:'#FFFFFF',accent:A,aLight:AL,aBdr:AB,
+  text:'#1A1F2E',sec:'#64748B',muted:'#94A3B8',
+  border:'#E2E8F0',borderDk:'#CBD5E1',
+  sh:'0 1px 3px rgba(0,0,0,0.07)',shMd:'0 4px 18px rgba(0,0,0,0.11)',
+  red:'#EF4444',redL:'#FEF2F2',redB:'#FECACA'};
+
+const PCOLS=['#5B8DEF','#8B5CF6','#10B981','#F59E0B','#EC4899','#14B8A6','#EF4444','#F97316','#06B6D4'];
+const SK='cognest_v3';
+
+/* ── STORAGE ── */
+const lGet=()=>{try{const v=localStorage.getItem(SK);return v?JSON.parse(v):null}catch{return null}};
+const lSet=d=>{try{localStorage.setItem(SK,JSON.stringify(d))}catch{}};
+
+/* ── UTILS ── */
+const uid=()=>Math.random().toString(36).slice(2,10);
+const now=()=>new Date().toISOString();
+const dom=url=>{try{return new URL(url).hostname.replace(/^www\./,'')}catch{return url}};
+const fixUrl=u=>u.startsWith('http')?u:'https://'+u;
+const fav=url=>`https://www.google.com/s2/favicons?domain=${dom(url)}&sz=64`;
+const isYT=u=>u.includes('youtube.com')||u.includes('youtu.be');
+const isVid=u=>isYT(u)||u.includes('vimeo.com')||u.includes('twitch.tv');
+const isSoc=u=>['twitter.com','x.com','instagram.com','tiktok.com','reddit.com','linkedin.com'].some(s=>u.includes(s));
+const getType=u=>isVid(u)?'video':isSoc(u)?'social':'article';
+const pCol=(p,ps)=>p.color||PCOLS[ps.findIndex(x=>x.id===p.id)%PCOLS.length];
+const randCol=()=>PCOLS[Math.floor(Math.random()*PCOLS.length)];
+const ago=iso=>{const s=(Date.now()-new Date(iso))/1e3;if(s<60)return'just now';if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;if(s<604800)return`${Math.floor(s/86400)}d ago`;return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'})};
+const TYPE_COL={video:'#EF4444',social:'#8B5CF6',article:'#10B981'};
+const TYPE_LBL={video:'Video',social:'Social',article:'Article'};
+
+/* ── HOOK: desktop ── */
+function useDesktop(){
+  const[ok,set]=useState(()=>window.innerWidth>=768);
+  useEffect(()=>{const h=()=>set(window.innerWidth>=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h)},[]);
+  return ok;
+}
+
+/* ── LINK PREVIEW ── */
+async function fetchPreview(rawUrl){
+  const url=fixUrl(rawUrl.trim());
+  try{
+    const r=await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`);
+    if(r.ok){const j=await r.json();if(j.status==='success'){const d=j.data;return{url:d.url||url,title:d.title||dom(url),description:d.description||'',image:d.image?.url||null,publisher:d.publisher||dom(url),favicon:d.logo?.url||fav(url),type:getType(url)}}}
+  }catch{}
+  return{url,title:dom(url),description:'',image:null,publisher:dom(url),favicon:fav(url),type:getType(url)};
+}
+
+/* ── LOGO ── */
+function Logo({size=28,color=C.accent}){
+  return(<svg width={size} height={size} viewBox="0 0 100 100" fill="none"><path d="M80 26 A37 37 0 1 0 80 74" stroke={color} strokeWidth="13" strokeLinecap="round"/><circle cx="50" cy="50" r="9" fill={color}/></svg>);
+}
+
+/* ── BTN ── */
+function Btn({children,onClick,disabled,v='primary',sz='md',full,style:sx={}}){
+  const pad=sz==='sm'?'8px 16px':sz==='lg'?'14px 28px':'11px 22px';
+  const fz=sz==='sm'?13:sz==='lg'?16:14;
+  const vs={primary:{background:C.accent,color:'#fff',border:'none',boxShadow:'0 2px 8px rgba(91,141,239,0.28)'},
+    ghost:{background:C.aLight,color:C.accent,border:`1px solid ${C.aBdr}`},
+    outline:{background:C.white,color:C.text,border:`1px solid ${C.border}`},
+    danger:{background:C.redL,color:C.red,border:`1px solid ${C.redB}`}};
+  return(
+    <button style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:7,padding:pad,fontSize:fz,fontWeight:600,borderRadius:10,cursor:disabled?'not-allowed':'pointer',opacity:disabled?0.4:1,fontFamily:'inherit',transition:'opacity 0.1s',width:full?'100%':'auto',minHeight:44,...vs[v],...sx}}
+      onClick={onClick} disabled={disabled}
+      onMouseEnter={e=>{if(!disabled)e.currentTarget.style.opacity='0.8'}}
+      onMouseLeave={e=>{if(!disabled)e.currentTarget.style.opacity='1'}}>
+      {children}
+    </button>
+  );
+}
+
+/* ── TEXT INPUT ── */
+function TIn({value,onChange,onKeyDown,placeholder,type='text',multi,rows=4,autoFocus,style:sx={}}){
+  const base={width:'100%',background:C.white,border:`1.5px solid ${C.border}`,borderRadius:10,padding:'12px 14px',color:C.text,fontSize:15,outline:'none',fontFamily:'inherit',resize:'none',boxSizing:'border-box',lineHeight:1.5,transition:'border-color 0.15s',...sx};
+  const ev={onFocus:e=>e.target.style.borderColor=C.accent,onBlur:e=>e.target.style.borderColor=C.border};
+  return multi?<textarea style={base} value={value} onChange={onChange} placeholder={placeholder} rows={rows} {...ev}/>
+    :<input style={base} type={type} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} autoFocus={autoFocus} {...ev}/>;
+}
+
+/* ── SPINNER ── */
+function Spin({size=20,color=C.accent}){return<div style={{width:size,height:size,borderRadius:'50%',border:`2.5px solid ${color}25`,borderTopColor:color,animation:'spin 0.65s linear infinite',flexShrink:0}}/>}
+
+/* ── SHEET (modal) ── */
+function Sheet({children,onClose,title}){
+  const desk=useDesktop();
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:400,background:'rgba(15,20,40,0.36)',backdropFilter:'blur(3px)',display:'flex',alignItems:desk?'center':'flex-end',justifyContent:'center',padding:desk?20:0}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.white,width:'100%',maxWidth:desk?480:9999,borderRadius:desk?18:'20px 20px 0 0',padding:'20px 20px 30px',maxHeight:'90vh',overflowY:'auto',boxShadow:'0 -4px 32px rgba(0,0,0,0.12)',animation:desk?'fadeUp 0.2s ease':'slideUp 0.24s ease'}}>
+        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:'0 auto 18px'}}/>
+        {title&&<h2 style={{fontSize:18,fontWeight:700,color:C.text,margin:'0 0 18px'}}>{title}</h2>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmSheet({msg,onConfirm,onCancel}){
+  return(
+    <Sheet onClose={onCancel} title="Are you sure?">
+      <p style={{fontSize:15,color:C.sec,marginBottom:22,lineHeight:1.65}}>{msg}</p>
+      <div style={{display:'flex',gap:10}}>
+        <Btn v="outline" onClick={onCancel} full>Cancel</Btn>
+        <Btn v="danger" onClick={onConfirm} full>Yes, Delete</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ────────────────────────────────────────
+   WELCOME SLIDES
+──────────────────────────────────────── */
+const SLIDES=[
+  {emoji:'🔗',title:'Welcome to Cognest',desc:"Your personal library for everything you find online. Save any link and access it anytime — all in one place.",btn:'Next →'},
+  {emoji:'📌',title:'Save any link',desc:'YouTube videos, articles, websites, recipes, tutorials — if it has a link, you can save it. Just paste the URL and Cognest does the rest.',btn:'Next →'},
+  {emoji:'📁',title:'Organize into Projects',desc:'Group your saved links into projects like "School Notes", "Recipe Ideas", or "Design Inspiration". Find anything in seconds.',btn:'Get Started ✓'},
+];
+
+function WelcomeScreen({onFinish}){
+  const[i,setI]=useState(0);
+  const s=SLIDES[i];
+  return(
+    <div style={{minHeight:'100vh',background:C.white,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'32px 24px'}}>
+      <div style={{maxWidth:380,width:'100%',textAlign:'center'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:52}}>
+          <Logo size={22}/><span style={{fontWeight:800,fontSize:16,color:C.text,letterSpacing:'-0.02em'}}>Cognest</span>
+        </div>
+        <div key={i} className="fu">
+          <div style={{width:88,height:88,background:C.aLight,borderRadius:24,display:'flex',alignItems:'center',justifyContent:'center',fontSize:44,margin:'0 auto 28px'}}>{s.emoji}</div>
+          <h1 style={{fontSize:26,fontWeight:800,color:C.text,margin:'0 0 14px',letterSpacing:'-0.025em'}}>{s.title}</h1>
+          <p style={{fontSize:16,color:C.sec,lineHeight:1.7,margin:'0 0 40px'}}>{s.desc}</p>
+        </div>
+        <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:30}}>
+          {SLIDES.map((_,j)=><div key={j} onClick={()=>setI(j)} style={{width:j===i?26:8,height:8,borderRadius:4,background:j===i?C.accent:C.border,transition:'all 0.2s',cursor:'pointer'}}/>)}
+        </div>
+        <Btn onClick={()=>i<SLIDES.length-1?setI(i+1):onFinish()} full sz="lg">{s.btn}</Btn>
+        {i<SLIDES.length-1&&<button onClick={onFinish} style={{marginTop:14,background:'none',border:'none',color:C.muted,fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>Skip intro</button>}
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────
+   LINK CARD
+──────────────────────────────────────── */
+function LinkCard({item,onDelete}){
+  const[imgErr,setImgErr]=useState(false);
+  return(
+    <div style={{background:C.white,borderRadius:14,border:`1px solid ${C.border}`,overflow:'hidden',boxShadow:C.sh,transition:'box-shadow 0.15s,transform 0.15s'}}
+      onMouseEnter={e=>{e.currentTarget.style.boxShadow=C.shMd;e.currentTarget.style.transform='translateY(-1px)'}}
+      onMouseLeave={e=>{e.currentTarget.style.boxShadow=C.sh;e.currentTarget.style.transform='none'}}>
+      {item.image&&!imgErr&&(
+        <div style={{position:'relative',width:'100%',paddingBottom:'52%',background:C.bg,overflow:'hidden'}}>
+          <img src={item.image} alt="" onError={()=>setImgErr(true)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+          {item.type==='video'&&(
+            <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <div style={{width:44,height:44,background:'rgba(0,0,0,0.62)',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <span style={{color:'#fff',fontSize:14,marginLeft:3}}>▶</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{padding:'14px 15px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
+          <img src={item.favicon} alt="" style={{width:15,height:15,borderRadius:3,flexShrink:0}} onError={e=>e.target.style.display='none'}/>
+          <span style={{fontSize:12,color:C.muted,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{item.publisher||dom(item.url)}</span>
+          <span style={{fontSize:10,fontWeight:700,color:TYPE_COL[item.type]||C.muted,background:(TYPE_COL[item.type]||C.muted)+'15',padding:'2px 7px',borderRadius:6,flexShrink:0}}>{TYPE_LBL[item.type]||'Link'}</span>
+        </div>
+        <h3 style={{fontSize:14,fontWeight:600,color:C.text,margin:'0 0 5px',lineHeight:1.45,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{item.title}</h3>
+        {item.description&&<p style={{fontSize:12,color:C.sec,margin:'0 0 8px',lineHeight:1.5,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{item.description}</p>}
+        <p style={{fontSize:11,color:C.muted,margin:'0 0 12px'}}>{ago(item.savedAt)}</p>
+        <div style={{display:'flex',gap:8}}>
+          <a href={item.url} target="_blank" rel="noopener noreferrer" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:5,padding:'9px 12px',background:C.aLight,color:C.accent,borderRadius:9,fontSize:13,fontWeight:600,textDecoration:'none',border:`1px solid ${C.aBdr}`}}>Open ↗</a>
+          <button onClick={()=>onDelete(item.id)} style={{padding:'9px 13px',background:C.redL,color:C.red,border:`1px solid ${C.redB}`,borderRadius:9,fontSize:13,cursor:'pointer',fontFamily:'inherit',fontWeight:500}}>✕</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────
+   PROJECT CARD
+──────────────────────────────────────── */
+function ProjCard({proj,projects,onClick,onDelete}){
+  const col=pCol(proj,projects);
+  return(
+    <div onClick={onClick} style={{background:C.white,borderRadius:16,border:`1px solid ${C.border}`,padding:18,cursor:'pointer',boxShadow:C.sh,transition:'all 0.15s',position:'relative',userSelect:'none'}}
+      onMouseEnter={e=>{e.currentTarget.style.boxShadow=C.shMd;e.currentTarget.style.transform='translateY(-2px)'}}
+      onMouseLeave={e=>{e.currentTarget.style.boxShadow=C.sh;e.currentTarget.style.transform='none'}}>
+      <div style={{width:42,height:42,background:col+'18',borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:12,fontSize:20,color:col}}>⊞</div>
+      <h3 style={{fontSize:15,fontWeight:700,color:C.text,margin:'0 0 3px'}}>{proj.name}</h3>
+      <p style={{fontSize:13,color:C.sec,margin:'0 0 10px'}}>{proj.items.length} link{proj.items.length!==1?'s':''}</p>
+      {proj.items.length>0&&(
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,display:'flex',flexDirection:'column',gap:5}}>
+          {proj.items.slice(0,3).map((it,idx)=>(
+            <div key={idx} style={{display:'flex',alignItems:'center',gap:7}}>
+              <img src={it.favicon} alt="" style={{width:13,height:13,borderRadius:2,flexShrink:0}} onError={e=>e.target.style.display='none'}/>
+              <span style={{fontSize:12,color:C.sec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.title}</span>
+            </div>
+          ))}
+          {proj.items.length>3&&<span style={{fontSize:11,color:C.muted}}>+{proj.items.length-3} more</span>}
+        </div>
+      )}
+      <button onClick={e=>{e.stopPropagation();onDelete(proj.id)}} style={{position:'absolute',top:13,right:13,width:28,height:28,background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:15,borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.1s'}}
+        onMouseEnter={e=>{e.currentTarget.style.background=C.redL;e.currentTarget.style.color=C.red}}
+        onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color=C.muted}}>✕</button>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────
+   SAVE LINK MODAL
+──────────────────────────────────────── */
+function SaveModal({projects,onSave,onClose}){
+  const[url,setUrl]=useState('');
+  const[preview,setPreview]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[err,setErr]=useState('');
+  const[step,setStep]=useState('url');
+  const[mode,setMode]=useState(projects.length>0?'existing':'new');
+  const[selP,setSelP]=useState(projects[0]?.id||'');
+  const[newN,setNewN]=useState('');
+
+  const fetch_=async()=>{
+    const u=url.trim();if(!u)return;
+    setLoading(true);setErr('');
+    try{const p=await fetchPreview(u);setPreview(p);setStep('project')}
+    catch{setErr('Could not load this link. Please check the URL and try again.')}
+    setLoading(false);
+  };
+
+  const confirm=()=>{
+    if(!preview)return;
+    const item={...preview,id:uid(),savedAt:now()};
+    onSave(mode==='existing'?selP:null,item,mode==='new'&&newN.trim()?newN.trim():null);
+  };
+
+  const canSave=mode==='existing'?!!selP:newN.trim().length>0;
+
+  return(
+    <Sheet onClose={onClose} title={step==='url'?'Save a link':'Choose a project'}>
+      {step==='url'?(
+        <div className="fu">
+          <p style={{fontSize:14,color:C.sec,margin:'-4px 0 16px',lineHeight:1.6}}>Paste any link — YouTube, article, website, social post, anything you want to save.</p>
+          <TIn value={url} onChange={e=>setUrl(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!loading&&fetch_()} placeholder="https://youtube.com/watch?v=..." type="url" autoFocus/>
+          {err&&<p style={{fontSize:13,color:C.red,marginTop:8,lineHeight:1.5}}>{err}</p>}
+          <div style={{marginTop:14}}><Btn onClick={fetch_} disabled={!url.trim()||loading} full>{loading?<><Spin size={15} color="#fff"/> Loading preview…</>:'Continue →'}</Btn></div>
+          <p style={{fontSize:12,color:C.muted,textAlign:'center',marginTop:12}}>Works with YouTube · Twitter/X · Articles · Reddit · Wikipedia · Any website</p>
+        </div>
+      ):(
+        <div className="fu">
+          {preview&&(
+            <div style={{background:C.bg,borderRadius:12,padding:14,marginBottom:18,border:`1px solid ${C.border}`,display:'flex',gap:12,alignItems:'center'}}>
+              {preview.image
+                ?<img src={preview.image} alt="" style={{width:62,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} onError={e=>e.target.style.display='none'}/>
+                :<div style={{width:48,height:48,background:C.aLight,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:22,color:C.accent}}>{preview.type==='video'?'▶':'◻'}</div>
+              }
+              <div style={{minWidth:0}}>
+                <p style={{fontSize:13,fontWeight:600,color:C.text,lineHeight:1.4,marginBottom:3,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{preview.title}</p>
+                <p style={{fontSize:12,color:C.muted}}>{preview.publisher}</p>
+              </div>
+            </div>
+          )}
+          {projects.length>0&&(
+            <div style={{display:'flex',background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:3,gap:3,marginBottom:14}}>
+              {[['existing','Add to existing'],['new','Create new project']].map(([m,l])=>(
+                <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:'8px 6px',borderRadius:8,border:'none',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',background:mode===m?C.white:'none',color:mode===m?C.accent:C.sec,boxShadow:mode===m?C.sh:'none',transition:'all 0.15s'}}>{l}</button>
+              ))}
+            </div>
+          )}
+          {mode==='existing'
+            ?<div style={{display:'flex',flexDirection:'column',gap:7,maxHeight:200,overflowY:'auto',marginBottom:16}}>
+               {projects.map(p=>(
+                 <button key={p.id} onClick={()=>setSelP(p.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderRadius:10,border:`1.5px solid ${selP===p.id?C.accent:C.border}`,background:selP===p.id?C.aLight:C.white,color:selP===p.id?C.accent:C.text,cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:selP===p.id?600:400,textAlign:'left',transition:'all 0.1s'}}>
+                   <span style={{fontSize:18}}>⊞</span>
+                   <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</span>
+                   <span style={{fontSize:12,color:C.muted,flexShrink:0}}>{p.items.length} links</span>
+                 </button>
+               ))}
+             </div>
+            :<div style={{marginBottom:16}}><TIn value={newN} onChange={e=>setNewN(e.target.value)} onKeyDown={e=>e.key==='Enter'&&canSave&&confirm()} placeholder="e.g. School, Recipes, Design Ideas…" autoFocus/></div>
+          }
+          <div style={{display:'flex',gap:10}}>
+            <Btn v="outline" onClick={()=>setStep('url')} style={{minWidth:90}}>← Back</Btn>
+            <Btn onClick={confirm} disabled={!canSave} full>Save Link ⭐</Btn>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+/* ────────────────────────────────────────
+   NEW PROJECT MODAL
+──────────────────────────────────────── */
+function NewProjModal({onClose,onCreate}){
+  const[name,setName]=useState('');
+  const[color,setColor]=useState(PCOLS[0]);
+  return(
+    <Sheet onClose={onClose} title="New Project">
+      <div style={{marginBottom:16}}><TIn value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&name.trim()&&onCreate(name.trim(),color)} placeholder="e.g. School Notes, Design Ideas, Recipes…" autoFocus/></div>
+      <p style={{fontSize:13,fontWeight:600,color:C.sec,marginBottom:10}}>Pick a colour</p>
+      <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
+        {PCOLS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:34,height:34,borderRadius:'50%',background:c,border:color===c?`3px solid ${C.text}`:'3px solid transparent',cursor:'pointer',transition:'transform 0.12s',transform:color===c?'scale(1.18)':'none'}}/>)}
+      </div>
+      <div style={{display:'flex',gap:10}}>
+        <Btn v="outline" onClick={onClose} full>Cancel</Btn>
+        <Btn onClick={()=>name.trim()&&onCreate(name.trim(),color)} disabled={!name.trim()} full>Create Project</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ────────────────────────────────────────
+   HOME VIEW
+──────────────────────────────────────── */
+function HomeView({projects,onOpen,onNewProj,onSave,onDelProj}){
+  const total=projects.reduce((n,p)=>n+p.items.length,0);
+  return(
+    <div>
+      <div style={{background:`linear-gradient(135deg,${C.aLight} 0%,#EFF4FF 100%)`,borderBottom:`1px solid ${C.border}`,padding:'26px 20px 22px'}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:C.text,margin:'0 0 5px',letterSpacing:'-0.02em'}}>Your Library 📚</h1>
+        <p style={{fontSize:14,color:C.sec,margin:'0 0 18px'}}>{projects.length===0?'Save your first link to get started.':`${total} link${total!==1?'s':''} across ${projects.length} project${projects.length!==1?'s':''}`}</p>
+        <div style={{display:'flex',gap:10}}>
+          <Btn onClick={onSave} style={{flex:1}}>+ Save a Link</Btn>
+          <Btn v="outline" onClick={onNewProj}>New Project</Btn>
+        </div>
+      </div>
+      <div style={{padding:'20px 16px 110px'}}>
+        {projects.length===0
+          ?<div style={{textAlign:'center',paddingTop:56}}>
+             <div style={{fontSize:60,marginBottom:16}}>🔗</div>
+             <h2 style={{fontSize:20,fontWeight:700,color:C.text,margin:'0 0 10px'}}>Nothing saved yet</h2>
+             <p style={{fontSize:15,color:C.sec,lineHeight:1.65,maxWidth:280,margin:'0 auto 28px'}}>Tap "Save a Link" and paste any URL — YouTube, articles, websites, recipes, anything.</p>
+             <Btn onClick={onSave} sz="lg">Save your first link</Btn>
+           </div>
+          :<>
+             <p style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.07em',margin:'0 0 14px'}}>Projects</p>
+             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
+               {projects.map(p=><ProjCard key={p.id} proj={p} projects={projects} onClick={()=>onOpen(p.id)} onDelete={onDelProj}/>)}
+               <button onClick={onNewProj} style={{background:'none',border:`2px dashed ${C.border}`,borderRadius:16,padding:20,cursor:'pointer',color:C.muted,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:10,minHeight:110,transition:'all 0.15s'}}
+                 onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent}}
+                 onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted}}>
+                 <span style={{fontSize:24}}>+</span><span style={{fontSize:14,fontWeight:600}}>New Project</span>
+               </button>
+             </div>
+           </>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────
+   PROJECT DETAIL VIEW
+──────────────────────────────────────── */
+function ProjView({proj,projects,onBack,onSave,onDelItem,onDelProj}){
+  const[q,setQ]=useState('');
+  const col=pCol(proj,projects);
+  const items=q?proj.items.filter(it=>it.title.toLowerCase().includes(q.toLowerCase())||it.publisher?.toLowerCase().includes(q.toLowerCase())||it.url.toLowerCase().includes(q.toLowerCase())):proj.items;
+  return(
+    <div>
+      <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 0'}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:C.accent,cursor:'pointer',fontSize:14,fontWeight:600,fontFamily:'inherit',padding:0,marginBottom:14,display:'flex',alignItems:'center',gap:4}}>← Library</button>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+            <div style={{width:40,height:40,background:col+'18',borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',color:col,fontSize:20,flexShrink:0}}>⊞</div>
+            <div style={{minWidth:0}}>
+              <h1 style={{fontSize:19,fontWeight:800,color:C.text,letterSpacing:'-0.02em',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{proj.name}</h1>
+              <p style={{fontSize:13,color:C.sec,margin:0}}>{proj.items.length} link{proj.items.length!==1?'s':''} saved</p>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:8,flexShrink:0,marginLeft:10}}>
+            <Btn onClick={onSave} sz="sm">+ Add</Btn>
+            <button onClick={onDelProj} style={{padding:'7px 11px',background:C.redL,color:C.red,border:`1px solid ${C.redB}`,borderRadius:8,cursor:'pointer',fontSize:12,fontFamily:'inherit',fontWeight:600}}>Delete</button>
+          </div>
+        </div>
+        {proj.items.length>3&&<div style={{paddingBottom:14}}><TIn value={q} onChange={e=>setQ(e.target.value)} placeholder={`Search in ${proj.name}…`} style={{fontSize:14}}/></div>}
+      </div>
+      <div style={{padding:'16px 16px 110px'}}>
+        {items.length===0
+          ?<div style={{textAlign:'center',paddingTop:44}}>
+             {proj.items.length===0
+               ?<><div style={{fontSize:48,marginBottom:12}}>🔗</div><p style={{color:C.sec,fontSize:15,marginBottom:20}}>No links here yet.</p><Btn onClick={onSave}>Save your first link</Btn></>
+               :<p style={{color:C.muted,fontSize:14}}>No links match "{q}"</p>
+             }
+           </div>
+          :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:14}}>
+             {items.map(it=><LinkCard key={it.id} item={it} onDelete={onDelItem}/>)}
+           </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────
+   ALL LINKS VIEW
+──────────────────────────────────────── */
+function AllView({projects,onDelItem}){
+  const[q,setQ]=useState('');
+  const all=projects.flatMap(p=>p.items.map(it=>({...it,_pn:p.name}))).sort((a,b)=>new Date(b.savedAt)-new Date(a.savedAt));
+  const items=q?all.filter(it=>it.title.toLowerCase().includes(q.toLowerCase())||it.publisher?.toLowerCase().includes(q.toLowerCase())):all;
+  return(
+    <div>
+      <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:'20px 16px'}}>
+        <h1 style={{fontSize:20,fontWeight:800,color:C.text,margin:'0 0 14px',letterSpacing:'-0.02em'}}>All Saved Links</h1>
+        <TIn value={q} onChange={e=>setQ(e.target.value)} placeholder="Search all your links…"/>
+      </div>
+      <div style={{padding:'16px 16px 110px'}}>
+        {items.length===0
+          ?<div style={{textAlign:'center',paddingTop:44,color:C.muted}}><p style={{fontSize:15}}>{all.length===0?'Nothing saved yet.':'No results.'}</p></div>
+          :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:14}}>
+             {items.map((it,i)=>(
+               <div key={it.id}>
+                 {it._pn&&(i===0||items[i-1]?._pn!==it._pn)&&<p style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.07em',marginBottom:8,marginTop:i>0?16:0}}>{it._pn}</p>}
+                 <LinkCard item={it} onDelete={onDelItem}/>
+               </div>
+             ))}
+           </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────
+   SIDEBAR  (desktop only)
+──────────────────────────────────────── */
+function Sidebar({view,setView,projects,activePId,onOpen,onNewProj,onSave}){
+  const isAct=id=>view===id||(id==='home'&&view==='project');
+  return(
+    <aside style={{width:228,flexShrink:0,background:C.white,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto'}}>
+      <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:9}}>
+        <Logo size={24}/><span style={{fontWeight:800,fontSize:17,letterSpacing:'-0.02em',color:C.text}}>Cognest</span>
+      </div>
+      <div style={{padding:'12px 10px 8px'}}>
+        <Btn onClick={onSave} full sz="sm">+ Save a Link</Btn>
+      </div>
+      <nav style={{padding:'4px 8px',display:'flex',flexDirection:'column',gap:2}}>
+        {[{id:'home',icon:'⊞',label:'Library'},{id:'all',icon:'◻',label:'All Links'}].map(n=>(
+          <button key={n.id} onClick={()=>setView(n.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 10px',borderRadius:9,border:'none',background:isAct(n.id)?C.aLight:'none',color:isAct(n.id)?C.accent:C.sec,fontWeight:isAct(n.id)?600:500,fontSize:14,cursor:'pointer',fontFamily:'inherit',textAlign:'left',width:'100%',transition:'all 0.1s'}}>
+            <span style={{fontSize:16}}>{n.icon}</span>{n.label}
+          </button>
+        ))}
+      </nav>
+      <div style={{padding:'12px 8px 8px',flex:1,overflowY:'auto'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 6px',marginBottom:8}}>
+          <span style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.07em'}}>Projects</span>
+          <button onClick={onNewProj} style={{background:'none',border:'none',color:C.accent,cursor:'pointer',fontSize:20,lineHeight:1,padding:'0 2px',fontWeight:300}}>+</button>
+        </div>
+        {projects.length===0
+          ?<button onClick={onNewProj} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'9px 10px',borderRadius:9,border:`1.5px dashed ${C.border}`,background:'none',color:C.muted,cursor:'pointer',fontFamily:'inherit',fontSize:13,textAlign:'left',transition:'all 0.12s'}}
+             onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent}}
+             onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted}}>
+             <span>+</span> New Project
+           </button>
+          :projects.map(p=>{const col=pCol(p,projects);const act=activePId===p.id&&view==='project';return(
+            <button key={p.id} onClick={()=>onOpen(p.id)} style={{display:'flex',alignItems:'center',gap:9,width:'100%',padding:'9px 10px',borderRadius:9,border:'none',background:act?C.aLight:'none',color:act?C.accent:C.text,cursor:'pointer',fontFamily:'inherit',fontSize:13,fontWeight:act?600:400,textAlign:'left',transition:'all 0.1s'}}>
+              <div style={{width:10,height:10,borderRadius:3,background:col,flexShrink:0}}/>
+              <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</span>
+              <span style={{fontSize:11,color:C.muted}}>{p.items.length}</span>
+            </button>
+          )})
+        }
+      </div>
+    </aside>
+  );
+}
+
+/* ────────────────────────────────────────
+   BOTTOM NAV  (mobile only)
+──────────────────────────────────────── */
+function BottomNav({view,setView,onSave}){
+  const isAct=id=>view===id||(id==='home'&&view==='project');
+  const tabs=[{id:'home',icon:'⊞',label:'Library'},{id:'all',icon:'◻',label:'All Links'}];
+  return(
+    <nav style={{position:'fixed',bottom:0,left:0,right:0,zIndex:200,background:C.white,borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',boxShadow:'0 -2px 16px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
+      {tabs.map((t,i)=>(
+        <React.Fragment key={t.id}>
+          {i===1&&(
+            <button onClick={onSave} style={{flexShrink:0,width:52,height:52,borderRadius:'50%',background:C.accent,border:`3px solid ${C.white}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 14px rgba(91,141,239,0.4)',color:'#fff',fontSize:24,fontWeight:300,marginTop:-22,transition:'transform 0.1s'}}
+              onMouseEnter={e=>e.currentTarget.style.transform='scale(1.08)'}
+              onMouseLeave={e=>e.currentTarget.style.transform='none'}>+</button>
+          )}
+          <button onClick={()=>setView(t.id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,padding:'10px 0',border:'none',background:'none',cursor:'pointer',fontFamily:'inherit',minHeight:56}}>
+            <span style={{fontSize:21,color:isAct(t.id)?C.accent:C.muted}}>{t.icon}</span>
+            <span style={{fontSize:11,fontWeight:600,color:isAct(t.id)?C.accent:C.muted}}>{t.label}</span>
+          </button>
+        </React.Fragment>
+      ))}
+    </nav>
+  );
+}
+
+/* ────────────────────────────────────────
+   MAIN APP
+──────────────────────────────────────── */
+function App(){
+  const[ready,setReady]     =useState(false);
+  const[showW,setShowW]     =useState(false);
+  const[view,setView]       =useState('home');
+  const[activePId,setAPId]  =useState(null);
+  const[projects,setProjs]  =useState([]);
+  const[showSave,setShowSave]=useState(false);
+  const[showNewP,setShowNewP]=useState(false);
+  const[delT,setDelT]       =useState(null);
+  const desk=useDesktop();
+
+  useEffect(()=>{
+    const d=lGet();
+    if(d){if(d.projects)setProjs(d.projects);setShowW(!d.settings?.hasSeenWelcome)}
+    else setShowW(true);
+    setReady(true);
+  },[]);
+
+  useEffect(()=>{if(ready)lSet({projects,settings:{hasSeenWelcome:!showW}})},[projects,showW,ready]);
+
+  const createProj=(name,color)=>{const id=uid();setProjs(ps=>[{id,name,color,items:[],createdAt:now(),updatedAt:now()},...ps]);return id};
+  const deleteProj=id=>{setProjs(ps=>ps.filter(p=>p.id!==id));if(activePId===id){setAPId(null);setView('home')}setDelT(null)};
+  const deleteItem=iid=>{setProjs(ps=>ps.map(p=>({...p,items:p.items.filter(i=>i.id!==iid),updatedAt:p.items.some(i=>i.id===iid)?now():p.updatedAt})));setDelT(null)};
+
+  const handleSave=(projId,item,newName)=>{
+    if(newName){
+      const nid=createProj(newName,randCol());
+      setTimeout(()=>setProjs(ps=>ps.map(p=>p.id===nid?{...p,items:[item,...p.items],updatedAt:now()}:p)),50);
+    }else{
+      setProjs(ps=>ps.map(p=>p.id===projId?{...p,items:[item,...p.items],updatedAt:now()}:p));
+    }
+    setShowSave(false);
+  };
+
+  const openProj=id=>{setAPId(id);setView('project')};
+  const activeProj=projects.find(p=>p.id===activePId);
+  const goView=v=>{if(v!=='project')setAPId(null);setView(v)};
+
+  if(!ready)return(<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:C.white}}><Logo size={44}/></div>);
+  if(showW)return(<WelcomeScreen onFinish={()=>{setShowW(false);lSet({projects,settings:{hasSeenWelcome:true}})}}/>);
+
+  const main=(
+    <div style={{flex:1,overflowY:'auto',minWidth:0}}>
+      {view==='home'    &&<HomeView projects={projects} onOpen={openProj} onNewProj={()=>setShowNewP(true)} onSave={()=>setShowSave(true)} onDelProj={id=>setDelT({t:'proj',id})}/>}
+      {view==='project' &&activeProj&&<ProjView proj={activeProj} projects={projects} onBack={()=>setView('home')} onSave={()=>setShowSave(true)} onDelItem={id=>setDelT({t:'item',id})} onDelProj={()=>setDelT({t:'proj',id:activePId})}/>}
+      {view==='all'     &&<AllView projects={projects} onDelItem={id=>setDelT({t:'item',id})}/>}
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:'100vh',background:C.bg,fontFamily:"'Inter',system-ui,sans-serif",display:'flex',flexDirection:'column'}}>
+      {desk
+        ?<div style={{display:'flex',flex:1,height:'100vh',overflow:'hidden'}}>
+           <Sidebar view={view} setView={goView} projects={projects} activePId={activePId} onOpen={openProj} onNewProj={()=>setShowNewP(true)} onSave={()=>setShowSave(true)}/>
+           <div style={{flex:1,overflowY:'auto'}}>{main}</div>
+         </div>
+        :<>
+           <header style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,boxShadow:'0 1px 0 rgba(0,0,0,0.04)',flexShrink:0}}>
+             <div style={{display:'flex',alignItems:'center',gap:8}}><Logo size={22}/><span style={{fontWeight:800,fontSize:16,color:C.text,letterSpacing:'-0.02em'}}>Cognest</span></div>
+             <Btn onClick={()=>setShowSave(true)} sz="sm">+ Save Link</Btn>
+           </header>
+           <div style={{flex:1,overflowY:'auto'}}>{main}</div>
+           <BottomNav view={view} setView={goView} onSave={()=>setShowSave(true)}/>
+         </>
+      }
+
+      {showSave&&<SaveModal projects={projects} onSave={handleSave} onClose={()=>setShowSave(false)}/>}
+      {showNewP&&<NewProjModal onClose={()=>setShowNewP(false)} onCreate={(n,c)=>{createProj(n,c);setShowNewP(false)}}/>}
+      {delT&&<ConfirmSheet msg={delT.t==='proj'?'Delete this project and all its saved links? This cannot be undone.':'Remove this link from your library?'} onConfirm={()=>delT.t==='proj'?deleteProj(delT.id):deleteItem(delT.id)} onCancel={()=>setDelT(null)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
