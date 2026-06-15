@@ -9,7 +9,7 @@
 
   const state = {
     open: false,
-    tab: "saved",
+    tab: "web",
     query: "",
     loading: false,
     results: [],
@@ -469,8 +469,8 @@
 
           <div class="cgx-controls">
             <div class="cgx-tabs" id="cgx-tabs">
-              <button class="cgx-tab active" data-tab="saved">Saved</button>
-              <button class="cgx-tab" data-tab="web">Web</button>
+              <button class="cgx-tab" data-tab="saved">Saved</button>
+<button class="cgx-tab active" data-tab="web">Web</button>
               <button class="cgx-tab" data-tab="video">Videos</button>
             </div>
             <input id="cgx-query" class="cgx-input" type="search" placeholder="Search your library or the web…" />
